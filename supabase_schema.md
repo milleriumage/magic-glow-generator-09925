@@ -1,434 +1,361 @@
 
-# Supabase Schema for Funfans Platform
+# Supabase Schema - FunFans Platform
 
-This document outlines the complete database schema, security policies, and setup instructions required to run the Funfans application backend on Supabase.
+Esta documentação completa descreve o esquema do banco de dados, segurança, edge functions e integrações para a plataforma FunFans.
 
-## 1. Authentication
-
-No special table creation is needed for authentication, as Supabase handles it with its built-in `auth.users` table.
-
-**Setup Steps:**
-1.  Navigate to **Authentication -> Providers** in your Supabase dashboard.
-2.  Enable the **Email** provider. You can also enable social providers like Google or Apple if desired.
-3.  Go to **Authentication -> Settings** to configure email templates for confirmation, password resets, etc.
+## 📋 Índice
+1. [Autenticação](#autenticação)
+2. [Tabelas do Banco de Dados](#tabelas-do-banco-de-dados)
+3. [Storage](#storage)
+4. [Row Level Security (RLS)](#row-level-security-rls)
+5. [Funções e Triggers](#funções-e-triggers)
+6. [Edge Functions](#edge-functions)
+7. [Integrações de Pagamento](#integrações-de-pagamento)
+8. [Configuração do Frontend](#configuração-do-frontend)
 
 ---
 
-## 2. Database Tables
+## 1. Autenticação
 
-Execute the following SQL in the **SQL Editor** in your Supabase dashboard to create all the necessary tables and relationships.
+A autenticação é gerenciada automaticamente pelo Supabase usando a tabela `auth.users`.
 
+### Configuração:
+1. Navegue até **Authentication → Providers** no dashboard do Supabase
+2. Habilite o provider **Email**
+3. Opcional: Habilite providers sociais (Google, Apple, etc.)
+4. Configure templates de email em **Authentication → Settings**
+
+### URLs de Redirecionamento:
+Configure em **Authentication → URL Configuration**:
+- **Site URL**: URL da sua aplicação
+- **Redirect URLs**: Adicione URLs de preview e produção
+
+---
+
+## 2. Tabelas do Banco de Dados
+
+As tabelas já estão criadas no banco de dados. Aqui está o schema completo:
+
+### ENUMS
 ```sql
--- Create custom ENUM types for better data integrity
 CREATE TYPE public.user_role AS ENUM ('user', 'creator', 'developer');
 CREATE TYPE public.transaction_type AS ENUM ('purchase', 'reward', 'subscription', 'refund', 'credit_purchase', 'payout');
 CREATE TYPE public.media_type AS ENUM ('image', 'video');
 CREATE TYPE public.payout_status AS ENUM ('pending', 'completed', 'failed');
-
--- Table to store public user data, extending the auth.users table
-CREATE TABLE public.profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  username TEXT UNIQUE NOT NULL,
-  profile_picture_url TEXT,
-  vitrine_slug TEXT UNIQUE,
-  credits_balance INT NOT NULL DEFAULT 1000,
-  earned_balance INT NOT NULL DEFAULT 0,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Table for subscription plans offered
-CREATE TABLE public.subscription_plans (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  price NUMERIC(10, 2) NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'USD',
-  credits INT NOT NULL,
-  features TEXT[] NOT NULL,
-  stripe_product_id TEXT
-);
-
--- Table to track user subscriptions
-CREATE TABLE public.user_subscriptions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  plan_id TEXT NOT NULL REFERENCES public.subscription_plans(id),
-  status TEXT NOT NULL DEFAULT 'active', -- e.g., 'active', 'canceled', 'past_due'
-  renews_on TIMESTAMPTZ NOT NULL,
-  stripe_subscription_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Table for all content posts created by users
-CREATE TABLE public.content_items (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  creator_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  price INT NOT NULL CHECK (price >= 0),
-  blur_level INT NOT NULL DEFAULT 5,
-  tags TEXT[],
-  is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Table for external payment provider records (Stripe, Mercado Pago, etc.)
-CREATE TABLE public.external_payments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL, -- 'stripe', 'mercado_pago', 'livepix'
-  provider_payment_id TEXT NOT NULL,
-  status TEXT NOT NULL, -- 'pending', 'succeeded', 'failed'
-  amount NUMERIC(10, 2) NOT NULL,
-  currency TEXT NOT NULL,
-  metadata JSONB, -- To store raw webhook data or other info
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (provider, provider_payment_id)
-);
-
--- Table for all credit transactions
-CREATE TABLE public.transactions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  type transaction_type NOT NULL,
-  amount INT NOT NULL,
-  description TEXT,
-  related_content_id UUID REFERENCES public.content_items(id),
-  external_payment_id UUID REFERENCES public.external_payments(id) ON DELETE SET NULL,
-  timestamp TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Table to link content items to media files in Storage
-CREATE TABLE public.media (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  content_item_id UUID NOT NULL REFERENCES public.content_items(id) ON DELETE CASCADE,
-  storage_path TEXT NOT NULL, -- Path in Supabase Storage
-  media_type media_type NOT NULL,
-  display_order INT NOT NULL DEFAULT 0
-);
-
--- Join table to track which users have purchased (unlocked) which content
-CREATE TABLE public.unlocked_content (
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  content_item_id UUID NOT NULL REFERENCES public.content_items(id) ON DELETE CASCADE,
-  unlocked_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (user_id, content_item_id)
-);
-
--- Join table for the follower/following relationship
-CREATE TABLE public.followers (
-  follower_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  following_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (follower_id, following_id)
-);
-
--- Join table for likes
-CREATE TABLE public.likes (
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  content_item_id UUID NOT NULL REFERENCES public.content_items(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (user_id, content_item_id)
-);
-
--- Join table for shares
-CREATE TABLE public.shares (
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  content_item_id UUID NOT NULL REFERENCES public.content_items(id) ON DELETE CASCADE,
-  shared_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (user_id, content_item_id)
-);
-
--- Table for emoji reactions on content
-CREATE TABLE public.reactions (
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  content_item_id UUID NOT NULL REFERENCES public.content_items(id) ON DELETE CASCADE,
-  emoji TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (user_id, content_item_id)
-);
-
--- Table for creator withdrawal requests
-CREATE TABLE public.payouts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  creator_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  amount_credits INT NOT NULL,
-  amount_usd NUMERIC(10, 2) NOT NULL,
-  status payout_status NOT NULL DEFAULT 'pending',
-  requested_at TIMESTAMPTZ DEFAULT NOW(),
-  completed_at TIMESTAMPTZ
-);
 ```
+
+### Tabelas Principais
+
+**profiles** - Perfis públicos dos usuários
+**subscription_plans** - Planos de assinatura disponíveis
+**user_subscriptions** - Assinaturas ativas dos usuários
+**content_items** - Conteúdo criado pelos criadores
+**credit_packages** - Pacotes de créditos para compra
+**external_payments** - Pagamentos via Stripe, Mercado Pago, LivePix
+**transactions** - Histórico de transações de créditos
+**media** - Arquivos de mídia vinculados ao conteúdo
+**unlocked_content** - Conteúdo desbloqueado por usuários
+**followers** - Relacionamento seguidor/seguindo
+**likes** - Curtidas em conteúdo
+**shares** - Compartilhamentos
+**reactions** - Reações com emoji
+**payouts** - Solicitações de saque dos criadores
 
 ---
 
 ## 3. Storage
 
-Media files should be stored in Supabase Storage for security and scalability.
+### Buckets Configurados:
 
-**Setup Steps:**
-1.  Navigate to **Storage** in your Supabase dashboard.
-2.  Create a new bucket named `profile-pictures`. Make this bucket **public** so profile images can be easily accessed.
-3.  Create another new bucket named `content-media`. Keep this bucket **private**. Access will be granted via Row Level Security policies.
+1. **profile-pictures** (público)
+   - Fotos de perfil dos usuários
+   - Acesso público para visualização
+
+2. **content-media** (privado)
+   - Mídia dos criadores (fotos/vídeos)
+   - Acesso controlado por RLS
+   - Somente usuários que desbloquearam o conteúdo podem ver
 
 ---
 
 ## 4. Row Level Security (RLS)
 
-RLS is essential to protect user data. You must enable it for each table and then add policies.
+Todas as tabelas possuem RLS habilitado com políticas apropriadas:
 
-**Setup Steps:**
-1.  Go to **Authentication -> Policies**.
-2.  For each table listed below, click "Enable RLS".
-3.  Then, for each table, create new policies by pasting the provided SQL into the **SQL Editor**.
-
-```sql
--- PROFILES
--- 1. Users can see all profiles.
-CREATE POLICY "Allow public read access to profiles" ON public.profiles FOR SELECT USING (true);
--- 2. Users can only update their own profile.
-CREATE POLICY "Allow users to update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
-
--- CONTENT ITEMS
--- 1. Allow authenticated users to view non-hidden content.
-CREATE POLICY "Allow read access to content" ON public.content_items FOR SELECT USING (auth.role() = 'authenticated' AND is_hidden = false);
--- 2. Allow creators to manage their own content.
-CREATE POLICY "Allow creators to manage their own content" ON public.content_items FOR ALL USING (auth.uid() = creator_id);
-
--- MEDIA
--- 1. Allow users who have unlocked content to view its media.
-CREATE POLICY "Allow unlocked users to view media" ON public.media FOR SELECT USING (
-  EXISTS (
-    SELECT 1 FROM unlocked_content
-    WHERE content_item_id = media.content_item_id AND user_id = auth.uid()
-  )
-);
--- 2. Allow creators to manage their own media.
-CREATE POLICY "Allow creators to manage their own media" ON public.media FOR ALL USING (
-  EXISTS (
-    SELECT 1 FROM content_items
-    WHERE id = media.content_item_id AND creator_id = auth.uid()
-  )
-);
-
--- UNLOCKED_CONTENT
--- 1. Users can only view their own unlocked records.
-CREATE POLICY "Allow users to view their own unlocked content" ON public.unlocked_content FOR SELECT USING (auth.uid() = user_id);
-
--- TRANSACTIONS
--- 1. Users can only view their own transactions.
-CREATE POLICY "Allow users to view their own transactions" ON public.transactions FOR SELECT USING (auth.uid() = user_id);
-
--- EXTERNAL_PAYMENTS
--- 1. Users can only see their own payment records.
-CREATE POLICY "Allow users to view their own external payments" ON public.external_payments FOR SELECT USING (auth.uid() = user_id);
-
--- LIKES, SHARES, REACTIONS, FOLLOWERS
--- 1. Allow authenticated users full access to social features.
-CREATE POLICY "Allow full access for authenticated users on likes" ON public.likes FOR ALL USING (auth.role() = 'authenticated');
-CREATE POLICY "Allow full access for authenticated users on shares" ON public.shares FOR ALL USING (auth.role() = 'authenticated');
-CREATE POLICY "Allow full access for authenticated users on reactions" ON public.reactions FOR ALL USING (auth.role() = 'authenticated');
-CREATE POLICY "Allow full access for authenticated users on followers" ON public.followers FOR ALL USING (auth.role() = 'authenticated');
-
--- USER SUBSCRIPTIONS
--- 1. Users can only manage their own subscription.
-CREATE POLICY "Allow users to manage their own subscription" ON public.user_subscriptions FOR ALL USING (auth.uid() = user_id);
-
--- PAYOUTS
--- 1. Creators can only manage their own payouts.
-CREATE POLICY "Allow creators to manage their own payouts" ON public.payouts FOR ALL USING (auth.uid() = creator_id);
-```
+- **profiles**: Leitura pública, usuários podem atualizar apenas seu próprio perfil
+- **content_items**: Apenas conteúdo não oculto visível, criadores gerenciam seu próprio conteúdo
+- **media**: Apenas usuários que desbloquearam podem ver, criadores gerenciam suas mídias
+- **unlocked_content**: Usuários veem apenas seu próprio conteúdo desbloqueado
+- **transactions**: Usuários veem apenas suas próprias transações
+- **Social features** (likes, shares, reactions, followers): Acesso completo para usuários autenticados
+- **subscription_plans, credit_packages**: Leitura pública
 
 ---
 
-## 5. Database Functions and Triggers
+## 5. Funções e Triggers
 
-Automate profile creation and handle complex logic like purchases securely on the backend.
-
-**Setup Steps:**
-1.  Run the following SQL in the **SQL Editor**.
+### handle_new_user()
+Cria automaticamente um perfil quando um novo usuário se registra.
 
 ```sql
--- Function to create a public profile when a new user signs up
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
   INSERT INTO public.profiles (id, username, vitrine_slug)
   VALUES (
     new.id,
-    'user' || substr(new.id::text, 1, 8), -- Default username
-    'user-' || substr(new.id::text, 1, 8) -- Default slug
+    'user' || substr(new.id::text, 1, 8),
+    'user-' || substr(new.id::text, 1, 8)
   );
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Trigger to call the function after a new user is created in auth.users
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-
--- Database function (RPC) to handle a content purchase
-CREATE OR REPLACE FUNCTION public.purchase_content(item_id UUID)
-RETURNS JSON
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  item_price INT;
-  buyer_balance INT;
-  creator_id_val UUID;
-  commission_rate NUMERIC := 0.50; -- Matches frontend
-  earnings INT;
-BEGIN
-  -- 1. Get item price and creator ID
-  SELECT price, creator_id INTO item_price, creator_id_val
-  FROM public.content_items WHERE id = item_id;
-
-  -- 2. Get buyer's current balance
-  SELECT credits_balance INTO buyer_balance
-  FROM public.profiles WHERE id = auth.uid();
-
-  -- 3. Check if balance is sufficient
-  IF buyer_balance < item_price THEN
-    RETURN json_build_object('success', false, 'message', 'Insufficient credits');
-  END IF;
-
-  -- 4. Deduct price from buyer's balance
-  UPDATE public.profiles
-  SET credits_balance = credits_balance - item_price
-  WHERE id = auth.uid();
-
-  -- 5. Calculate earnings and add to creator's earned balance
-  earnings := floor(item_price * (1 - commission_rate));
-  UPDATE public.profiles
-  SET earned_balance = earned_balance + earnings
-  WHERE id = creator_id_val;
-
-  -- 6. Add record to unlocked_content table
-  INSERT INTO public.unlocked_content (user_id, content_item_id)
-  VALUES (auth.uid(), item_id);
-
-  -- 7. Create a transaction record for the buyer
-  INSERT INTO public.transactions (user_id, type, amount, description, related_content_id)
-  VALUES (auth.uid(), 'purchase', -item_price, 'Content purchase', item_id);
-
-  RETURN json_build_object('success', true, 'message', 'Purchase successful');
-END;
-$$;
 ```
 
-With this function, instead of handling purchase logic on the frontend, you would simply call it from your app:
-`const { data, error } = await supabase.rpc('purchase_content', { item_id: '...' })`
+### purchase_content(item_id UUID)
+Processa compra de conteúdo de forma segura no servidor.
 
-This is far more secure and reliable.
+**Funcionalidades:**
+- Verifica saldo suficiente
+- Deduz créditos do comprador
+- Adiciona ganhos ao criador (com comissão de 50%)
+- Desbloqueia conteúdo
+- Registra transação
+
+**Uso:**
+```typescript
+const { data, error } = await supabase.rpc('purchase_content', {
+  item_id: 'content-uuid'
+});
+```
 
 ---
 
-## 6. Frontend Environment
+## 6. Edge Functions
 
-Finally, connect your frontend application to your new Supabase backend.
-1.  Go to **Project Settings -> API**.
-2.  Find your **Project URL** and **anon (public) key**.
-3.  Add these to your application's environment variables (`.env` file):
-    ```
-    VITE_SUPABASE_URL=YOUR_PROJECT_URL
-    VITE_SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
-    ```
+### 🔷 stripe-webhook
+**Path:** `supabase/functions/stripe-webhook/index.ts`
 
-Your Funfans backend is now fully configured and ready for data persistence!
+**Função:** Processa webhooks do Stripe
 
+**Eventos tratados:**
+- `checkout.session.completed` - Adiciona créditos após compra
+- `customer.subscription.created/updated` - Gerencia assinaturas
+- `customer.subscription.deleted` - Cancela assinatura
 
+**Secrets necessários:**
+- `STRIPE_SECRET_KEY` ✅
+- `STRIPE_WEBHOOK_SECRET` ✅
 
+**URL do Webhook:**
+```
+https://cpggicxvmgyljvoxlpnu.supabase.co/functions/v1/stripe-webhook
+```
 
-API gemini
+---
 
-AIzaSyAvecfgEHN0jwwmE5Z2oignUFPt0MOCG-w
+### 🔷 mercadopago-webhook  
+**Path:** `supabase/functions/mercadopago-webhook/index.ts`
 
-android rewards  
+**Função:** Processa webhooks do Mercado Pago (PIX)
 
- ID de aplicativo:  
-ca-app-pub-9940279518295431~8194670508
+**Eventos tratados:**
+- `payment.approved` - Adiciona créditos
+- `payment.rejected/cancelled` - Registra falha
 
-código usando este código de bloco de anúncios:  
-ca-app-pub-9940279518295431/6202931980
+**Secrets necessários:**
+- `MERCADOPAGO_ACCESS_TOKEN` ✅
 
-Stripe
+**URL do Webhook:**
+```
+https://cpggicxvmgyljvoxlpnu.supabase.co/functions/v1/mercadopago-webhook
+```
 
-chave restrita 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 
+---
 
-chave publica pk_live_51QOMivKg4NAdmMglJPmORiI4jlIBKRf4beqR4eaxJx0xZWHz13eTD8KgSdWWizgnzepLs0PcGF35fx9TTSBPIaYR00E5EFl6ZZ 
+### 🔷 create-pix-payment
+**Path:** `supabase/functions/create-pix-payment/index.ts`
 
-WEBHOOK STRYPE https://cpggicxvmgyljvoxlpnu.supabase.co/functions/v1/stripe-webhook  
+**Função:** Cria pagamento PIX via API do Mercado Pago
 
+**Retorna:**
+- QR Code em base64
+- Código PIX copia e cola
+- ID do pagamento
 
+**Uso:**
+```typescript
+const { data } = await supabase.functions.invoke('create-pix-payment', {
+  body: {
+    amount: 10.00,
+    credits: 100,
+    userId: user.id
+  }
+});
+```
 
-ids produtos e planos stripe
+---
 
-2500 credit  
-25 $  
-prod_SyYmVrUetdiIBY
+## 7. Integrações de Pagamento
 
-10000 credit  
-100 $  
-prod_SyYhva8A2beAw6
+### 💳 Stripe
 
-5000 credit  
-50 $  
-prod_SyYg54VfiOr7LQ
+**Chaves:**
+- **Secret Key:** `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`
+- **Public Key:** `pk_live_51QOMivKg4NAdmMglJPmORiI4jlIBKRf4beqR4eaxJx0xZWHz13eTD8KgSdWWizgnzepLs0PcGF35fx9TTSBPIaYR00E5EFl6ZZ`
 
-1000 credit  
-10$  
-prod_SyYfzJ1fjz9zb9
+**Produtos de Créditos:**
+```
+100 créditos   - $1    - prod_SyYehlUkfzq9Qn
+200 créditos   - $2    - prod_SyYasByos1peGR
+500 créditos   - $5    - prod_SyYeStqRDuWGFF
+1000 créditos  - $10   - prod_SyYfzJ1fjz9zb9
+2500 créditos  - $25   - prod_SyYmVrUetdiIBY
+5000 créditos  - $50   - prod_SyYg54VfiOr7LQ
+10000 créditos - $100  - prod_SyYhva8A2beAw6
+```
 
-500 credit  
-5$  
-prod_SyYeStqRDuWGFF
+**Planos de Assinatura:**
+```
+Free Plan  - $0   - prod_SyYChoQJbIb1ye
+Basic Plan - $9   - prod_SyYK31lYwaraZW
+Pro Plan   - $15  - prod_SyYMs3lMIhORSP
+VIP Plan   - $25  - (adicionar ID se necessário)
+```
 
-100 credit  
-1$  
-prod_SyYehlUkfzq9Qn
+---
 
-200 credit  
-2$  
-prod_SyYasByos1peGR
+### 💰 Mercado Pago (PIX)
 
-free plan
+**Credenciais:**
+- **Public Key:** `APP_USR-4b0a99f3-dc4f-4d33-8f08-12354f51951f`
+- **Access Token:** `APP_USR-2788550269284837-082514-7c59a29754c79ba60b1bd71d37d4647d-771121179`
+- **Client Secret:** `ofXe7rw7yjFbOWGLYAy5bzlOHUWGxFZ4`
+- **Client ID:** `2788550269284837`
 
-prod_SyYChoQJbIb1ye
+**Taxa de Conversão:** R$ 1,00 = 10 créditos
 
-basic plan  
-9$  
-prod_SyYK31lYwaraZW
+**Webhook URL:**
+```
+https://cpggicxvmgyljvoxlpnu.supabase.co/functions/v1/mercadopago-webhook
+```
 
-pro plan  
-15 $  
-prod_SyYMs3lMIhORSP
+---
 
-vip plan  
-25$
+### 💸 LivePix
 
+**API Key:** `72eaf585-19a4-46d6-8c84-0c14e2738e16`
 
+**Widget Embed:**
+```html
+<iframe src="https://widget.livepix.gg/embed/782d9bf9-cb99-4196-b9c2-cfa6a14b4d64"></iframe>
+```
 
+**URL:** https://livepix.gg/faala
 
+---
 
-  mercado pago api key public
-   APP_USR-4b0a99f3-dc4f-4d33-8f08-12354f51951f
-   
-   acess token 
-   APP_USR-2788550269284837-082514-7c59a29754c79ba60b1bd71d37d4647d-771121179 
-   
-   client secret 
-   ofXe7rw7yjFbOWGLYAy5bzlOHUWGxFZ4 
-   
-   client id 2788550269284837
-   
-aqui esta url de produção = webhook https://lgstvoixptdcqohsxkvo.supabase.co/functions/v1/mercadopago-webhook  
+## 8. Configuração do Frontend
 
-API LIVE PIX = 72eaf585-19a4-46d6-8c84-0c14e2738e16
+### Variáveis de Ambiente
 
+Arquivo `.env` já está configurado:
+```env
+VITE_SUPABASE_PROJECT_ID="cpggicxvmgyljvoxlpnu"
+VITE_SUPABASE_PUBLISHABLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNwZ2dpY3h2bWd5bGp2b3hscG51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwMDMxMjMsImV4cCI6MjA3NzU3OTEyM30.swv-8-C-45rFA2503gnnPE424LVrSwWVeO3QDsNHZQw"
+VITE_SUPABASE_URL="https://cpggicxvmgyljvoxlpnu.supabase.co"
+```
 
-https://widget.livepix.gg/embed/782d9bf9-cb99-4196-b9c2-cfa6a14b4d64
+### Cliente Supabase
 
+O cliente já está configurado em `src/integrations/supabase/client.ts`.
 
-Url Live Pix
+**Uso:**
+```typescript
+import { supabase } from '@/integrations/supabase/client';
 
-https://livepix.gg/faala
+// Login
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com',
+  password: 'senha123'
+});
+
+// Registrar
+const { data, error } = await supabase.auth.signUp({
+  email: 'user@example.com',
+  password: 'senha123'
+});
+
+// Logout
+await supabase.auth.signOut();
+```
+
+---
+
+## 📱 Outras Integrações
+
+### Google Gemini AI
+**API Key:** `AIzaSyAvecfgEHN0jwwmE5Z2oignUFPt0MOCG-w`
+
+### Google AdMob (Android)
+**App ID:** `ca-app-pub-9940279518295431~8194670508`
+**Rewarded Ad Unit:** `ca-app-pub-9940279518295431/6202931980`
+
+---
+
+## ✅ Status da Implementação
+
+### Backend (Supabase) ✅ COMPLETO
+- [x] Tabelas criadas e configuradas
+- [x] RLS policies implementadas
+- [x] Funções e triggers funcionando
+- [x] Storage buckets configurados
+- [x] Edge functions criadas:
+  - [x] stripe-webhook
+  - [x] mercadopago-webhook
+  - [x] create-pix-payment
+- [x] Secrets configurados
+- [x] Integrações de pagamento conectadas
+
+### Frontend ⚠️ PENDENTE
+- [ ] Substituir sistema mock por autenticação real do Supabase
+- [ ] Integrar tela de login com supabase.auth
+- [ ] Conectar pagamentos Stripe no frontend
+- [ ] Conectar pagamentos PIX/Mercado Pago no frontend
+- [ ] Migrar gerenciamento de créditos para o banco de dados
+- [ ] Implementar sincronização de dados em tempo real
+
+---
+
+## 🚀 Próximos Passos
+
+### 1. **URGENTE: Adicionar script build:dev**
+Abra `package.json` e adicione na seção "scripts":
+```json
+"build:dev": "vite build --mode development"
+```
+
+### 2. Implementar Autenticação Real
+- Substituir Login.tsx para usar `supabase.auth`
+- Criar hooks de autenticação
+- Implementar persistência de sessão
+
+### 3. Conectar Pagamentos
+- Implementar checkout Stripe no frontend
+- Integrar geração de PIX com edge function
+- Adicionar verificação de status de pagamento
+
+### 4. Migrar Dados Mock
+- Substituir context mock por queries Supabase
+- Implementar CRUD de conteúdo
+- Sincronizar perfis e créditos
+
+---
+
+## 📚 Links Úteis
+
+- **Supabase Dashboard:** https://supabase.com/dashboard/project/cpggicxvmgyljvoxlpnu
+- **SQL Editor:** https://supabase.com/dashboard/project/cpggicxvmgyljvoxlpnu/sql/new
+- **Auth Config:** https://supabase.com/dashboard/project/cpggicxvmgyljvoxlpnu/auth/providers
+- **Edge Functions:** https://supabase.com/dashboard/project/cpggicxvmgyljvoxlpnu/functions
+- **Storage:** https://supabase.com/dashboard/project/cpggicxvmgyljvoxlpnu/storage/buckets
