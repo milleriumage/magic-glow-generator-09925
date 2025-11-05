@@ -23,9 +23,6 @@ export default defineConfig(({ mode }) => {
         rollupOptions: {
           external: [/supabase\/functions/]
         }
-      },
-      optimizeDeps: {
-        exclude: ['supabase/functions/**']
       }
     };
 });

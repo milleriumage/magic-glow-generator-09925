@@ -1,7 +1,5 @@
 
 import React, { useState, useMemo } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { supabase } from '@/src/integrations/supabase/client';
 import { useCredits } from '../hooks/useCredits';
 import { TransactionType } from '../types';
 import Notification from '../components/Notification';
@@ -9,13 +7,12 @@ import Notification from '../components/Notification';
 const PIX_CONVERSION_RATE = 10; // 1 BRL = 10 Credits
 
 const PixPayment: React.FC = () => {
-    const { user } = useAuth();
     const [amountBRL, setAmountBRL] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [paymentData, setPaymentData] = useState<{ qrCodeBase64: string; copyPasteCode: string; paymentId: string } | null>(null);
+    const [paymentData, setPaymentData] = useState<{ qrCodeBase64: string; copyPasteCode: string; paymentId: number } | null>(null);
     const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [copyButtonText, setCopyButtonText] = useState('Copiar');
-    const { balance, addCredits } = useCredits();
+    const { balance, addCredits, currentUser } = useCredits();
 
     const creditsToReceive = useMemo(() => {
         const amount = parseFloat(amountBRL);
@@ -36,7 +33,7 @@ const PixPayment: React.FC = () => {
             return;
         }
 
-        if (!user) {
+        if (!currentUser) {
             setNotification({ message: 'Você precisa estar logado para realizar a compra.', type: 'error' });
             setTimeout(() => setNotification(null), 3000);
             return;
@@ -47,34 +44,37 @@ const PixPayment: React.FC = () => {
         setNotification(null);
         
         try {
-            const { data, error } = await supabase.functions.invoke('create-pix-payment', {
-                body: {
+            const response = await fetch('https://cpggicxvmgyljvoxlpnu.supabase.co/functions/v1/create-pix-payment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
                     amount: transactionAmount,
                     credits: creditsToReceive,
-                    userId: user.id,
-                }
+                    userId: currentUser.id,
+                }),
             });
 
-            if (error) throw error;
+            if (!response.ok) {
+                throw new Error('Erro ao gerar código PIX');
+            }
+
+            const data = await response.json();
             
-            if (data?.success) {
+            if (data.success) {
                 setPaymentData({
                     qrCodeBase64: data.qrCodeBase64,
                     copyPasteCode: data.qrCode,
                     paymentId: data.paymentId,
                 });
-                setNotification({ message: 'QR Code gerado com sucesso!', type: 'success' });
-                setTimeout(() => setNotification(null), 3000);
             } else {
-                throw new Error(data?.error || 'Falha ao gerar pagamento PIX');
+                throw new Error('Falha ao gerar pagamento PIX');
             }
-        } catch (error: any) {
+        } catch (error) {
             console.error('Erro ao gerar PIX:', error);
-            setNotification({ 
-                message: error.message || 'Erro ao gerar código PIX. Verifique suas credenciais.', 
-                type: 'error' 
-            });
-            setTimeout(() => setNotification(null), 5000);
+            setNotification({ message: 'Erro ao gerar código PIX. Tente novamente.', type: 'error' });
+            setTimeout(() => setNotification(null), 3000);
         } finally {
             setIsLoading(false);
         }
