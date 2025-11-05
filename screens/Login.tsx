@@ -1,5 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 import { useCredits } from '../hooks/useCredits';
 import OnlyFansCard from '../components/OnlyFansCard';
 
@@ -9,23 +11,50 @@ const DemoIcon = () => (
 
 
 const Login: React.FC = () => {
+  const navigate = useNavigate();
+  const { signIn, signUp, user } = useAuth();
   const { login, allUsers, contentItems } = useCredits();
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const [isDemoOpen, setIsDemoOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const demoRef = useRef<HTMLDivElement>(null);
 
   const showcaseItems = contentItems.slice(0, 4);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    // In a real app, this would validate credentials.
-    // Here, we log in as the main creator account.
-    const creatorUser = allUsers.find(u => u.role === 'creator');
-    if (creatorUser) {
-        login(creatorUser.id);
-    } else {
-        alert('Default creator account not found!');
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate('/');
     }
+  }, [user, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      if (activeTab === 'login') {
+        const { error } = await signIn(email, password);
+        if (error) throw error;
+      } else {
+        const { error } = await signUp(email, password);
+        if (error) throw error;
+        setError('Conta criada! Verifique seu email para confirmar.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Erro ao processar autenticação');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleDemoLogin = (userId: string) => {
+    login(userId);
+    setIsDemoOpen(false);
   };
   
   // Close demo dropdown if clicked outside
@@ -54,19 +83,16 @@ const Login: React.FC = () => {
                     <div className="absolute right-0 mt-2 w-64 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl animate-fade-in-down">
                         <div className="p-2">
                              <p className="text-xs text-neutral-400 px-2 pb-1">Select a demo profile to login:</p>
-                            {allUsers.map(user => (
+                             {allUsers.map(demoUser => (
                                 <button
-                                    key={user.id}
-                                    onClick={() => {
-                                        login(user.id)
-                                        setIsDemoOpen(false);
-                                    }}
+                                    key={demoUser.id}
+                                    onClick={() => handleDemoLogin(demoUser.id)}
                                     className="w-full flex items-center p-2 text-left rounded-md hover:bg-neutral-700 transition-colors"
                                 >
-                                    <img src={user.profilePictureUrl} alt={user.username} className="w-9 h-9 rounded-full mr-3" />
+                                    <img src={demoUser.profilePictureUrl} alt={demoUser.username} className="w-9 h-9 rounded-full mr-3" />
                                     <div>
-                                        <p className="font-semibold text-sm text-white">{user.username}</p>
-                                        <p className="text-xs text-neutral-400 capitalize">{user.role}</p>
+                                        <p className="font-semibold text-sm text-white">{demoUser.username}</p>
+                                        <p className="text-xs text-neutral-400 capitalize">{demoUser.role}</p>
                                     </div>
                                 </button>
                             ))}
@@ -98,23 +124,55 @@ const Login: React.FC = () => {
                     </button>
                 </div>
 
-                <form className="space-y-4" onSubmit={handleLogin}>
+                {error && (
+                    <div className={`p-3 rounded-lg ${error.includes('criada') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                        {error}
+                    </div>
+                )}
+
+                <form className="space-y-4" onSubmit={handleSubmit}>
                     <div>
                         <label className="text-sm font-medium text-neutral-300" htmlFor="email">Email</label>
-                        <input id="email" type="email" placeholder="you@example.com" required className="w-full mt-1 px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-primary" />
+                        <input 
+                            id="email" 
+                            type="email" 
+                            placeholder="you@example.com" 
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required 
+                            className="w-full mt-1 px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-primary" 
+                        />
                     </div>
                     <div>
                         <div className="flex justify-between items-center">
                             <label className="text-sm font-medium text-neutral-300" htmlFor="password">Password</label>
-                            <a href="#" className="text-xs text-neutral-400 hover:text-brand-light">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline mr-1"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
-                                Forgot password?
-                            </a>
+                            {activeTab === 'login' && (
+                                <a href="#" className="text-xs text-neutral-400 hover:text-brand-light">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline mr-1"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
+                                    Esqueceu a senha?
+                                </a>
+                            )}
                         </div>
-                        <input id="password" type="password" placeholder="••••••••" required className="w-full mt-1 px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-primary" />
+                        <input 
+                            id="password" 
+                            type="password" 
+                            placeholder="••••••••" 
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required 
+                            minLength={6}
+                            className="w-full mt-1 px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-primary" 
+                        />
+                        {activeTab === 'register' && (
+                            <p className="mt-1 text-xs text-neutral-400">Mínimo 6 caracteres</p>
+                        )}
                     </div>
-                    <button type="submit" className="w-full py-3 font-bold text-white bg-brand-primary rounded-lg hover:bg-brand-primary/90 transition-colors">
-                        {activeTab === 'login' ? 'Sign In' : 'Create Account'}
+                    <button 
+                        type="submit" 
+                        disabled={loading}
+                        className="w-full py-3 font-bold text-white bg-brand-primary rounded-lg hover:bg-brand-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {loading ? 'Processando...' : (activeTab === 'login' ? 'Entrar' : 'Criar Conta')}
                     </button>
                 </form>
 
