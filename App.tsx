@@ -93,7 +93,7 @@ const MainLayout: React.FC = () => {
 }
 
 const AppContent: React.FC = () => {
-  const { isLoggedIn, viewingCreatorId, theme, authLoading } = useCredits();
+  const { isLoggedIn, viewingCreatorId, theme } = useCredits();
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -103,18 +103,6 @@ const AppContent: React.FC = () => {
       root.classList.remove('dark');
     }
   }, [theme]);
-
-  // Show loading screen while checking authentication
-  if (authLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-neutral-900">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-brand-primary"></div>
-          <p className="mt-4 text-neutral-400">Carregando...</p>
-        </div>
-      </div>
-    );
-  }
 
   // Allow guest view if a creator profile is being shared/viewed
   if (isLoggedIn || viewingCreatorId) {

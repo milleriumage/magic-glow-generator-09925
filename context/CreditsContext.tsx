@@ -2,7 +2,6 @@
 import React, { createContext, useState, useCallback, ReactNode, useMemo, useEffect } from 'react';
 import { User, Transaction, TransactionType, ContentItem, SubscriptionPlan, UserSubscription, DevSettings, UserRole, CreatorTransaction, UserTimeout, Screen, CreditPackage } from '../types';
 import { REWARD_AMOUNT, INITIAL_CONTENT_ITEMS, INITIAL_SUBSCRIPTION_PLANS, INITIAL_CREDIT_PACKAGES, INITIAL_USERS } from '../constants';
-import { useAuth } from '@/hooks/useAuth';
 
 // --- DEFAULT STATES ---
 const initialDevSettings: DevSettings = {
@@ -34,7 +33,6 @@ interface CreditsContextType {
   
   // User & Social State
   isLoggedIn: boolean;
-  authLoading: boolean;
   currentUser: User | null;
   allUsers: User[];
   activeTagFilter: string | null;
@@ -95,9 +93,6 @@ export const CreditsContext = createContext<CreditsContextType | undefined>(unde
 
 // --- PROVIDER COMPONENT ---
 export const CreditsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Auth hook
-  const { user: authUser, loading: authLoading } = useAuth();
-  
   // Core State
   const [balance, setBalance] = useState(100);
   const [earnedBalances, setEarnedBalances] = useState<Record<string, number>>({});
@@ -443,8 +438,7 @@ export const CreditsProvider: React.FC<{ children: ReactNode }> = ({ children })
     currentScreen,
     unlockedContentIds,
     withdrawalTimeEnd,
-    isLoggedIn: isLoggedIn || !!authUser,
-    authLoading,
+    isLoggedIn,
     currentUser,
     allUsers,
     activeTagFilter,
