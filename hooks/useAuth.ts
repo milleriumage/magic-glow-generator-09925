@@ -10,14 +10,23 @@ export const useAuth = () => {
   useEffect(() => {
     let mounted = true;
 
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted) {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
-      }
-    });
+    // Get initial session with error handling
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (mounted) {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoading(false);
+        }
+      })
+      .catch((error) => {
+        console.error('Error getting session:', error);
+        if (mounted) {
+          setSession(null);
+          setUser(null);
+          setLoading(false);
+        }
+      });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
