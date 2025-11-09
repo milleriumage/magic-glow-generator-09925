@@ -114,11 +114,9 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <React.StrictMode>
-      <CreditsProvider>
-        <AppContent />
-      </CreditsProvider>
-    </React.StrictMode>
+    <CreditsProvider>
+      <AppContent />
+    </CreditsProvider>
   );
 };
 

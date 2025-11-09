@@ -38,13 +38,12 @@ export const INITIAL_USERS: User[] = [
 
 
 export const INITIAL_CREDIT_PACKAGES: CreditPackage[] = [
-  { id: 'pkg1', credits: 100, price: 1.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYehlUkfzq9Qn' },
-  { id: 'pkg2', credits: 200, price: 2.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYasByos1peGR' },
-  { id: 'pkg3', credits: 500, price: 5.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYeStqRDuWGFF' },
-  { id: 'pkg4', credits: 1000, price: 10.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYfzJ1fjz9zb9' },
-  { id: 'pkg5', credits: 2500, price: 25.00, bonus: 0, bestValue: true, stripeProductId: 'prod_SyYmVrUetdiIBY' },
-  { id: 'pkg6', credits: 5000, price: 50.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYg54VfiOr7LQ' },
-  { id: 'pkg7', credits: 10000, price: 100.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYhva8A2beAw6' },
+  { id: 'pkg1', credits: 200, price: 2.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYasByos1peGR' },
+  { id: 'pkg2', credits: 500, price: 5.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYeStqRDuWGFF' },
+  { id: 'pkg3', credits: 1000, price: 10.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYfzJ1fjz9zb9' },
+  { id: 'pkg4', credits: 2500, price: 25.00, bonus: 0, bestValue: true, stripeProductId: 'prod_SyYmVrUetdiIBY' },
+  { id: 'pkg5', credits: 5000, price: 50.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYg54VfiOr7LQ' },
+  { id: 'pkg6', credits: 10000, price: 100.00, bonus: 0, bestValue: false, stripeProductId: 'prod_SyYhva8A2beAw6' },
 ];
 
 export const INITIAL_CONTENT_ITEMS: ContentItem[] = [
