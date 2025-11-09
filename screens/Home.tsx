@@ -1,7 +1,8 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { type Screen, type ContentItem } from '../types';
 import { useCredits } from '../hooks/useCredits';
+import { useSupabaseContent } from '../hooks/useSupabaseContent';
 import OnlyFansCard from '../components/OnlyFansCard';
 import ConfirmPurchaseModal from '../components/ConfirmPurchaseModal';
 import Notification from '../components/Notification';
@@ -13,7 +14,8 @@ interface HomeProps {
 }
 
 const Home: React.FC<HomeProps> = ({ navigate }) => {
-  const { contentItems, unlockedContentIds, currentUser, activeTagFilter, setTagFilter, viewingCreatorId, setViewCreator, allUsers, showcasedUserIds } = useCredits();
+  const { unlockedContentIds, currentUser, activeTagFilter, setTagFilter, viewingCreatorId, setViewCreator, allUsers, showcasedUserIds } = useCredits();
+  const { contentItems, loading } = useSupabaseContent(currentUser?.id || null);
   const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [isViewContentModalOpen, setIsViewContentModalOpen] = useState(false);
@@ -93,6 +95,14 @@ const Home: React.FC<HomeProps> = ({ navigate }) => {
         {label}
     </button>
   );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-white text-xl">Loading content...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

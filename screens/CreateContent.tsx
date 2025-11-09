@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useCredits } from '../hooks/useCredits';
+import { useSupabaseContent } from '../hooks/useSupabaseContent';
 import { ContentItem, Screen } from '../types';
 import Notification from '../components/Notification';
 
@@ -9,6 +10,7 @@ interface CreateContentProps {
 
 const CreateContent: React.FC<CreateContentProps> = ({ navigate }) => {
     const { addContentItem, devSettings, currentUser } = useCredits();
+    const { createContentItem } = useSupabaseContent(currentUser?.id || null);
     const [title, setTitle] = useState('');
     const [price, setPrice] = useState('');
     const [offerText, setOfferText] = useState('');
@@ -16,8 +18,9 @@ const CreateContent: React.FC<CreateContentProps> = ({ navigate }) => {
     const [blurLevel, setBlurLevel] = useState(5);
     const [useExternalLink, setUseExternalLink] = useState(false);
     const [externalLink, setExternalLink] = useState('');
+    const [imageFiles, setImageFiles] = useState<File[]>([]);
+    const [videoFiles, setVideoFiles] = useState<File[]>([]);
     const [uploadedImages, setUploadedImages] = useState<string[]>([]);
-    const [uploadedVideos, setUploadedVideos] = useState(0);
     
     const [notification, setNotification] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -29,8 +32,10 @@ const CreateContent: React.FC<CreateContentProps> = ({ navigate }) => {
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
             const files = Array.from(e.target.files);
-            const remainingSlots = devSettings.maxImagesPerCard - uploadedImages.length;
-            const newImageUrls = files.slice(0, remainingSlots).map((file: File) => URL.createObjectURL(file));
+            const remainingSlots = devSettings.maxImagesPerCard - imageFiles.length;
+            const newFiles = files.slice(0, remainingSlots);
+            const newImageUrls = newFiles.map((file: File) => URL.createObjectURL(file));
+            setImageFiles(prev => [...prev, ...newFiles]);
             setUploadedImages(prev => [...prev, ...newImageUrls]);
         }
     };
@@ -38,17 +43,17 @@ const CreateContent: React.FC<CreateContentProps> = ({ navigate }) => {
     const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
             const files = Array.from(e.target.files);
-            const remainingSlots = devSettings.maxVideosPerCard - uploadedVideos;
-            const newVideosCount = Math.min(files.length, remainingSlots);
-            setUploadedVideos(prev => prev + newVideosCount);
+            const remainingSlots = devSettings.maxVideosPerCard - videoFiles.length;
+            const newFiles = files.slice(0, remainingSlots);
+            setVideoFiles(prev => [...prev, ...newFiles]);
         }
     }
 
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const isFormValid = title && price && parseInt(price) > 0 && 
-                            (useExternalLink ? externalLink : (uploadedImages.length > 0 || uploadedVideos > 0));
+                            (useExternalLink ? externalLink : (imageFiles.length > 0 || videoFiles.length > 0));
 
         if (!isFormValid) {
             alert('Please fill all required fields and add content.');
@@ -57,41 +62,39 @@ const CreateContent: React.FC<CreateContentProps> = ({ navigate }) => {
 
         setIsLoading(true);
 
-        const newItem: ContentItem = {
-            id: `item_${Date.now()}`,
-            creatorId: currentUser.id,
-            title,
-            price: parseInt(price, 10),
-            offerText,
-            // Fix: Replaced 'reactions' with 'userReactions' and provided a valid default object.
-            userReactions: { user: '', creator: '', developer: '' },
-            mediaCount: {
-                images: uploadedImages.length,
-                videos: uploadedVideos,
-            },
-            imageUrl: uploadedImages[0] || `https://picsum.photos/seed/item${Date.now()}/600/800`,
-            blurLevel,
-            externalLink: useExternalLink ? externalLink : undefined,
-            likedBy: [],
-            // Fix: Replaced 'shareCount' with 'sharedBy' to match the ContentItem type.
-            sharedBy: [],
-            createdAt: new Date().toISOString(),
-            tags: tags.split(',').map(tag => tag.trim().toLowerCase()).filter(Boolean),
-        };
+        try {
+            const parsedTags = tags.split(',').map(tag => tag.trim().toLowerCase()).filter(Boolean);
+            
+            const result = await createContentItem(
+                title,
+                parseInt(price, 10),
+                blurLevel,
+                parsedTags,
+                imageFiles,
+                videoFiles
+            );
 
-        setTimeout(() => {
-            addContentItem(newItem);
-            setNotification('Content created successfully!');
+            if (result.success) {
+                setNotification('Content created successfully!');
+                setTimeout(() => {
+                    setNotification(null);
+                    navigate('my-creations');
+                }, 2000);
+            } else {
+                setNotification(result.error || 'Failed to create content');
+                setTimeout(() => setNotification(null), 3000);
+            }
+        } catch (error) {
+            console.error('Error creating content:', error);
+            setNotification('Failed to create content. Please try again.');
+            setTimeout(() => setNotification(null), 3000);
+        } finally {
             setIsLoading(false);
-            setTimeout(() => {
-                setNotification(null);
-                navigate('home');
-            }, 2000);
-        }, 1000);
+        }
     };
     
-    const canUploadImages = uploadedImages.length < devSettings.maxImagesPerCard;
-    const canUploadVideos = uploadedVideos < devSettings.maxVideosPerCard;
+    const canUploadImages = imageFiles.length < devSettings.maxImagesPerCard;
+    const canUploadVideos = videoFiles.length < devSettings.maxVideosPerCard;
 
     return (
         <div className="max-w-2xl mx-auto">
@@ -149,11 +152,11 @@ const CreateContent: React.FC<CreateContentProps> = ({ navigate }) => {
                             <div className="mt-2 flex gap-4">
                                <label className={`flex-1 text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${canUploadImages ? 'bg-brand-secondary hover:bg-brand-secondary/90 cursor-pointer' : 'bg-neutral-600 cursor-not-allowed'}`}>
                                    <input type="file" multiple accept="image/*" onChange={handleImageUpload} className="hidden" disabled={!canUploadImages} />
-                                   Add Images ({uploadedImages.length}/{devSettings.maxImagesPerCard})
+                                   Add Images ({imageFiles.length}/{devSettings.maxImagesPerCard})
                                </label>
                                <label className={`flex-1 text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${canUploadVideos ? 'bg-brand-light/80 hover:bg-brand-light/70 cursor-pointer' : 'bg-neutral-600 cursor-not-allowed'}`}>
                                    <input type="file" multiple accept="video/*" onChange={handleVideoUpload} className="hidden" disabled={!canUploadVideos} />
-                                   Add Videos ({uploadedVideos}/{devSettings.maxVideosPerCard})
+                                   Add Videos ({videoFiles.length}/{devSettings.maxVideosPerCard})
                                </label>
                             </div>
                         </div>
